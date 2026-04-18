@@ -5,3 +5,7 @@
 .DS_Store
 .idea/
 .vscode/
+.review-loop/
+reviews/
+AGENTS.md
+
