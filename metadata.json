@@ -1,8 +1,8 @@
 {
-    "uuid": "ultra-powersave@smiie.local",
-    "name": "Ultra PowerSaving",
-    "description": "Adds a Quick Settings toggle that switches tuned to the most aggressive 'laptop-battery-powersave' profile. Turning it off restarts tuned-ppd so GNOME's normal PPD->tuned mapping takes over again.",
+    "uuid": "power-toggles@smiie.local",
+    "name": "Power Toggles",
+    "description": "Quick Settings toggles for ThinkPad power tuning. Ultra PowerSaving forces tuned to 'laptop-battery-powersave' (below GNOME's built-in power-saver rung). GPU Boost raises Intel MMIO RAPL PL1/PL2 from the 20W/43W OEM defaults to 55W/55W for iGPU-bound workloads.",
     "shell-version": ["49"],
-    "url": "https://github.com/smiie/gnome-ultra-powersave-toggle",
+    "url": "https://github.com/Smiie-2/gnome-power-toggles",
     "settings-schema": null
 }

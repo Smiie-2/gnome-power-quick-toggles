@@ -1,8 +1,21 @@
-/* extension.js — Ultra PowerSaving
+/* extension.js — Power Toggles
  *
- * Adds a Quick Settings toggle that flips tuned to
- * 'laptop-battery-powersave' (most aggressive) when ON, and restarts
- * tuned-ppd when OFF so GNOME's normal PPD->tuned mapping resumes.
+ * Adds two Quick Settings toggles:
+ *
+ *   1. "Ultra PowerSaving" — forces tuned to 'laptop-battery-powersave'
+ *      (a fourth, extra-aggressive rung below GNOME's built-in slider).
+ *      Reverts by restarting tuned-ppd.service so PPD's mapping resumes.
+ *
+ *   2. "GPU Boost" — raises Intel MMIO RAPL PL1/PL2 from the 20W/43W OEM
+ *      defaults to 55W/55W by invoking hs-power-limit-boost.service. Turns
+ *      off by invoking hs-power-limit-default.service. State is read back
+ *      from /sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw
+ *      so the toggle always reflects the actual hardware state.
+ *
+ * Both toggles rely on org.freedesktop.systemd1.Manager.{RestartUnit,StartUnit}
+ * succeeding without a polkit prompt for the active session. On this system
+ * that holds by default; if it ever stops working, install the polkit rule
+ * shipped in the repo under polkit/.
  *
  * GNOME Shell 49, ESM module.
  */
@@ -15,16 +28,27 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import {QuickToggle, SystemIndicator} from 'resource:///org/gnome/shell/ui/quickSettings.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
+// ----- tuned / Ultra PowerSaving ---------------------------------------------
 const TUNED_NAME = 'com.redhat.tuned';
 const TUNED_PATH = '/Tuned';
 const TUNED_IFACE = 'com.redhat.tuned.control';
 const ULTRA_PROFILE = 'laptop-battery-powersave';
 
+// ----- systemd unit invocation ----------------------------------------------
 const SYSTEMD_NAME = 'org.freedesktop.systemd1';
 const SYSTEMD_PATH = '/org/freedesktop/systemd1';
 const SYSTEMD_IFACE = 'org.freedesktop.systemd1.Manager';
 const PPD_UNIT = 'tuned-ppd.service';
+const BOOST_UNIT = 'hs-power-limit-boost.service';
+const DEFAULT_UNIT = 'hs-power-limit-default.service';
 
+// ----- GPU Boost / MMIO RAPL -------------------------------------------------
+const MMIO_PL1 = '/sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw';
+const BOOST_THRESHOLD_UW = 40_000_000; // above this -> boost is active (OEM default is 20M)
+
+// =============================================================================
+// Ultra PowerSaving toggle
+// =============================================================================
 const UltraPowerSaveToggle = GObject.registerClass(
 class UltraPowerSaveToggle extends QuickToggle {
     _init() {
@@ -36,45 +60,30 @@ class UltraPowerSaveToggle extends QuickToggle {
 
         this._bus = Gio.DBus.system;
         this._signalId = 0;
-        this._busyUntilSignal = false;
 
-        // Connect to the system bus signals for tuned profile changes
         this._signalId = this._bus.signal_subscribe(
-            TUNED_NAME,
-            TUNED_IFACE,
-            'profile_changed',
-            TUNED_PATH,
-            null,
+            TUNED_NAME, TUNED_IFACE, 'profile_changed', TUNED_PATH, null,
             Gio.DBusSignalFlags.NONE,
             (conn, sender, path, iface, signal, params) => {
-                // signature: sbs -> (new_profile, result, message)
                 try {
                     const [newProfile] = params.deep_unpack();
                     this._setCheckedSilently(newProfile === ULTRA_PROFILE);
                 } catch (e) {
-                    logError(e, '[ultra-powersave] profile_changed parse error');
+                    logError(e, '[power-toggles/ups] profile_changed parse error');
                 }
             }
         );
 
-        // React to user clicks
-        this._notifyId = this.connect('clicked', () => {
-            if (this.checked)
-                this._enableUltra();
-            else
-                this._revertToPPD();
+        this.connect('clicked', () => {
+            if (this.checked) this._enableUltra();
+            else this._revertToPPD();
         });
 
-        // Initialize state from tuned
         this._readActiveProfile();
     }
 
     _setCheckedSilently(value) {
-        if (this.checked === value)
-            return;
-        // Temporarily block the 'clicked' handler; we only react to user clicks,
-        // and setting `checked` directly doesn't emit 'clicked'. Safe to just set.
-        this.checked = value;
+        if (this.checked !== value) this.checked = value;
     }
 
     _readActiveProfile() {
@@ -84,11 +93,10 @@ class UltraPowerSaveToggle extends QuickToggle {
             Gio.DBusCallFlags.NONE, -1, null,
             (src, res) => {
                 try {
-                    const reply = this._bus.call_finish(res);
-                    const [profile] = reply.deep_unpack();
+                    const [profile] = this._bus.call_finish(res).deep_unpack();
                     this._setCheckedSilently(profile === ULTRA_PROFILE);
                 } catch (e) {
-                    logError(e, '[ultra-powersave] active_profile failed');
+                    logError(e, '[power-toggles/ups] active_profile failed');
                 }
             }
         );
@@ -102,15 +110,14 @@ class UltraPowerSaveToggle extends QuickToggle {
             Gio.DBusCallFlags.NONE, -1, null,
             (src, res) => {
                 try {
-                    const reply = this._bus.call_finish(res);
-                    const [ok, msg] = reply.deep_unpack();
+                    const [ok, msg] = this._bus.call_finish(res).deep_unpack();
                     if (!ok) {
-                        log(`[ultra-powersave] switch_profile refused: ${msg}`);
+                        log(`[power-toggles/ups] switch_profile refused: ${msg}`);
                         Main.notify('Ultra PowerSaving', `tuned refused: ${msg}`);
                         this._setCheckedSilently(false);
                     }
                 } catch (e) {
-                    logError(e, '[ultra-powersave] switch_profile failed');
+                    logError(e, '[power-toggles/ups] switch_profile failed');
                     Main.notify('Ultra PowerSaving', `D-Bus error: ${e.message}`);
                     this._setCheckedSilently(false);
                 }
@@ -119,10 +126,6 @@ class UltraPowerSaveToggle extends QuickToggle {
     }
 
     _revertToPPD() {
-        // Ask systemd to restart tuned-ppd.service. This works for the logged-in
-        // active user session on this system without a polkit prompt (verified).
-        // tuned-ppd re-reads the current PPD slider + AC/battery state and pushes
-        // the appropriate profile back into tuned.
         this._bus.call(
             SYSTEMD_NAME, SYSTEMD_PATH, SYSTEMD_IFACE, 'RestartUnit',
             new GLib.Variant('(ss)', [PPD_UNIT, 'replace']),
@@ -132,10 +135,9 @@ class UltraPowerSaveToggle extends QuickToggle {
                 try {
                     this._bus.call_finish(res);
                 } catch (e) {
-                    logError(e, '[ultra-powersave] RestartUnit failed');
+                    logError(e, '[power-toggles/ups] RestartUnit failed');
                     Main.notify('Ultra PowerSaving',
                         `Could not restart tuned-ppd: ${e.message}`);
-                    // Roll back UI state since revert didn't happen
                     this._setCheckedSilently(true);
                 }
             }
@@ -151,12 +153,107 @@ class UltraPowerSaveToggle extends QuickToggle {
     }
 });
 
-const UltraPowerSaveIndicator = GObject.registerClass(
-class UltraPowerSaveIndicator extends SystemIndicator {
+// =============================================================================
+// GPU Boost toggle
+// =============================================================================
+const GpuBoostToggle = GObject.registerClass(
+class GpuBoostToggle extends QuickToggle {
+    _init() {
+        super._init({
+            title: 'GPU Boost',
+            iconName: 'power-profile-performance-symbolic',
+            toggleMode: true,
+        });
+
+        this._bus = Gio.DBus.system;
+        this._readCancellable = null;
+        this._verifyTimeoutId = 0;
+
+        this.connect('clicked', () => {
+            const unit = this.checked ? BOOST_UNIT : DEFAULT_UNIT;
+            this._startUnit(unit);
+        });
+
+        this._readState();
+    }
+
+    _setCheckedSilently(value) {
+        if (this.checked !== value) this.checked = value;
+    }
+
+    _readState() {
+        // PL1 sysfs is world-readable; parse the µW value and decide by threshold.
+        if (this._readCancellable) this._readCancellable.cancel();
+        this._readCancellable = new Gio.Cancellable();
+
+        const file = Gio.File.new_for_path(MMIO_PL1);
+        file.load_contents_async(this._readCancellable, (src, res) => {
+            try {
+                const [, bytes] = file.load_contents_finish(res);
+                const text = new TextDecoder().decode(bytes).trim();
+                const value = parseInt(text, 10);
+                if (Number.isFinite(value))
+                    this._setCheckedSilently(value > BOOST_THRESHOLD_UW);
+            } catch (e) {
+                if (!e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
+                    logError(e, '[power-toggles/boost] read PL1 failed');
+            }
+        });
+    }
+
+    _startUnit(unit) {
+        this._bus.call(
+            SYSTEMD_NAME, SYSTEMD_PATH, SYSTEMD_IFACE, 'StartUnit',
+            new GLib.Variant('(ss)', [unit, 'replace']),
+            new GLib.VariantType('(o)'),
+            Gio.DBusCallFlags.NONE, -1, null,
+            (src, res) => {
+                try {
+                    this._bus.call_finish(res);
+                    // Re-read after a short delay so the toggle reflects
+                    // actual sysfs state rather than our optimistic assumption.
+                    if (this._verifyTimeoutId)
+                        GLib.source_remove(this._verifyTimeoutId);
+                    this._verifyTimeoutId = GLib.timeout_add(
+                        GLib.PRIORITY_DEFAULT, 250, () => {
+                            this._verifyTimeoutId = 0;
+                            this._readState();
+                            return GLib.SOURCE_REMOVE;
+                        });
+                } catch (e) {
+                    logError(e, '[power-toggles/boost] StartUnit failed');
+                    Main.notify('GPU Boost',
+                        `Could not start ${unit}: ${e.message}`);
+                    this._setCheckedSilently(!this.checked);
+                }
+            }
+        );
+    }
+
+    destroy() {
+        if (this._readCancellable) {
+            this._readCancellable.cancel();
+            this._readCancellable = null;
+        }
+        if (this._verifyTimeoutId) {
+            GLib.source_remove(this._verifyTimeoutId);
+            this._verifyTimeoutId = 0;
+        }
+        super.destroy();
+    }
+});
+
+// =============================================================================
+// Indicator + Extension
+// =============================================================================
+const PowerTogglesIndicator = GObject.registerClass(
+class PowerTogglesIndicator extends SystemIndicator {
     _init() {
         super._init();
-        this._toggle = new UltraPowerSaveToggle();
-        this.quickSettingsItems.push(this._toggle);
+        this._ultra = new UltraPowerSaveToggle();
+        this._boost = new GpuBoostToggle();
+        this.quickSettingsItems.push(this._ultra);
+        this.quickSettingsItems.push(this._boost);
     }
 
     destroy() {
@@ -166,9 +263,9 @@ class UltraPowerSaveIndicator extends SystemIndicator {
     }
 });
 
-export default class UltraPowerSavingExtension extends Extension {
+export default class PowerTogglesExtension extends Extension {
     enable() {
-        this._indicator = new UltraPowerSaveIndicator();
+        this._indicator = new PowerTogglesIndicator();
         Main.panel.statusArea.quickSettings.addExternalIndicator(this._indicator);
     }
 

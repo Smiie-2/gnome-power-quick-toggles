@@ -1,0 +1,7 @@
+[Unit]
+Description=Restore Intel MMIO RAPL PL1/PL2 to OEM defaults (20W/43W)
+Documentation=https://github.com/Smiie-2/gnome-power-toggles
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo 20000000 > /sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw && echo 43000000 > /sys/class/powercap/intel-rapl-mmio:0/constraint_1_power_limit_uw'

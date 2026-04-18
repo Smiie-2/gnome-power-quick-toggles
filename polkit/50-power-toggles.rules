@@ -1,0 +1,33 @@
+// Allow the active local user session to start/restart the units the
+// Power Toggles GNOME extension drives, without a polkit prompt.
+//
+// This only becomes necessary if a future systemd/polkit/distro update
+// tightens the default rules so that org.freedesktop.systemd1.manage-units
+// prompts even for active sessions. On the current system both
+// RestartUnit(tuned-ppd.service) and StartUnit(hs-power-limit-*) succeed
+// unprompted, so this rule is a safety net.
+//
+// Install as root:
+//   sudo install -m 0644 polkit/50-power-toggles.rules \
+//     /etc/polkit-1/rules.d/50-power-toggles.rules
+
+polkit.addRule(function(action, subject) {
+    if (action.id !== "org.freedesktop.systemd1.manage-units")
+        return;
+    if (!subject.active || !subject.local)
+        return;
+
+    var unit = action.lookup("unit");
+    var verb = action.lookup("verb");
+    var allowedUnits = [
+        "tuned-ppd.service",
+        "hs-power-limit-boost.service",
+        "hs-power-limit-default.service",
+    ];
+    var allowedVerbs = ["start", "stop", "restart", "reload"];
+
+    if (allowedUnits.indexOf(unit) !== -1 &&
+        allowedVerbs.indexOf(verb) !== -1) {
+        return polkit.Result.YES;
+    }
+});
