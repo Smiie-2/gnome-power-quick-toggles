@@ -1,13 +1,12 @@
 // Allow the active local user session to start/restart the units the
 // Power Quick Toggles GNOME extension drives, without a polkit prompt.
 //
-// This only becomes necessary if a future systemd/polkit/distro update
-// tightens the default rules so that org.freedesktop.systemd1.manage-units
-// prompts even for active sessions. On the current system both
-// RestartUnit(tuned-ppd.service) and StartUnit(power-limit-*) succeed
-// unprompted, so this rule is a safety net.
+// Required: without this, org.freedesktop.systemd1.manage-units prompts
+// for interactive auth, and the extension calls D-Bus with
+// DBusCallFlags.NONE (no interactive auth), so the calls fail with
+// org.freedesktop.DBus.Error.InteractiveAuthorizationRequired.
 //
-// Install as root:
+// install.sh installs this automatically. To install manually:
 //   sudo install -m 0644 polkit/50-power-quick-toggles.rules \
 //     /etc/polkit-1/rules.d/50-power-quick-toggles.rules
 

@@ -22,6 +22,12 @@ for u in "${UUIDS[@]}"; do
     fi
 done
 
+POLKIT_DEST="/etc/polkit-1/rules.d/50-power-quick-toggles.rules"
+if [[ -f "${POLKIT_DEST}" ]]; then
+    echo "Removing polkit rule ${POLKIT_DEST} (requires sudo)"
+    sudo rm -f "${POLKIT_DEST}"
+fi
+
 echo "Done. Restart GNOME Shell to fully drop the indicator:"
 echo "  - Wayland: log out and back in"
 echo "  - X11:     Alt+F2, 'r', Enter"

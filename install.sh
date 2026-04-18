@@ -35,6 +35,13 @@ if [[ -f "${SRC_DIR}/stylesheet.css" ]]; then
     install -m 0644 "${SRC_DIR}/stylesheet.css" "${DEST_DIR}/stylesheet.css"
 fi
 
+POLKIT_SRC="${SRC_DIR}/polkit/50-power-quick-toggles.rules"
+POLKIT_DEST="/etc/polkit-1/rules.d/50-power-quick-toggles.rules"
+if [[ -f "${POLKIT_SRC}" ]]; then
+    echo "Installing polkit rule to ${POLKIT_DEST} (requires sudo)"
+    sudo install -m 0644 "${POLKIT_SRC}" "${POLKIT_DEST}"
+fi
+
 echo "Done. Next steps:"
 echo "  1. Enable:  gnome-extensions enable ${UUID}"
 echo "  2. Restart GNOME Shell:"

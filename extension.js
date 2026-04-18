@@ -106,11 +106,11 @@ class UltraPowerSaveToggle extends QuickToggle {
         this._bus.call(
             TUNED_NAME, TUNED_PATH, TUNED_IFACE, 'switch_profile',
             new GLib.Variant('(s)', [ULTRA_PROFILE]),
-            new GLib.VariantType('(bs)'),
+            new GLib.VariantType('((bs))'),
             Gio.DBusCallFlags.NONE, -1, null,
             (src, res) => {
                 try {
-                    const [ok, msg] = this._bus.call_finish(res).deep_unpack();
+                    const [[ok, msg]] = this._bus.call_finish(res).deep_unpack();
                     if (!ok) {
                         log(`[power-quick-toggles/ups] switch_profile refused: ${msg}`);
                         Main.notify('Ultra PowerSaving', `tuned refused: ${msg}`);
@@ -168,13 +168,33 @@ class GpuBoostToggle extends QuickToggle {
         this._bus = Gio.DBus.system;
         this._readCancellable = null;
         this._verifyTimeoutId = 0;
+        this._profileSignalId = 0;
 
         this.connect('clicked', () => {
             const unit = this.checked ? BOOST_UNIT : DEFAULT_UNIT;
             this._startUnit(unit);
         });
 
+        // tuned profile changes (e.g. switching to laptop-battery-powersave)
+        // can rewrite PL1/PL2 behind our back. Re-read after the change settles.
+        this._profileSignalId = this._bus.signal_subscribe(
+            TUNED_NAME, TUNED_IFACE, 'profile_changed', TUNED_PATH, null,
+            Gio.DBusSignalFlags.NONE,
+            () => this._scheduleVerify(750)
+        );
+
         this._readState();
+    }
+
+    _scheduleVerify(delayMs) {
+        if (this._verifyTimeoutId)
+            GLib.source_remove(this._verifyTimeoutId);
+        this._verifyTimeoutId = GLib.timeout_add(
+            GLib.PRIORITY_DEFAULT, delayMs, () => {
+                this._verifyTimeoutId = 0;
+                this._readState();
+                return GLib.SOURCE_REMOVE;
+            });
     }
 
     _setCheckedSilently(value) {
@@ -210,16 +230,7 @@ class GpuBoostToggle extends QuickToggle {
             (src, res) => {
                 try {
                     this._bus.call_finish(res);
-                    // Re-read after a short delay so the toggle reflects
-                    // actual sysfs state rather than our optimistic assumption.
-                    if (this._verifyTimeoutId)
-                        GLib.source_remove(this._verifyTimeoutId);
-                    this._verifyTimeoutId = GLib.timeout_add(
-                        GLib.PRIORITY_DEFAULT, 250, () => {
-                            this._verifyTimeoutId = 0;
-                            this._readState();
-                            return GLib.SOURCE_REMOVE;
-                        });
+                    this._scheduleVerify(250);
                 } catch (e) {
                     logError(e, '[power-quick-toggles/boost] StartUnit failed');
                     Main.notify('GPU Boost',
@@ -231,6 +242,10 @@ class GpuBoostToggle extends QuickToggle {
     }
 
     destroy() {
+        if (this._profileSignalId) {
+            this._bus.signal_unsubscribe(this._profileSignalId);
+            this._profileSignalId = 0;
+        }
         if (this._readCancellable) {
             this._readCancellable.cancel();
             this._readCancellable = null;
