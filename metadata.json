@@ -1,0 +1,8 @@
+{
+    "uuid": "ultra-powersave@smiie.local",
+    "name": "Ultra PowerSaving",
+    "description": "Adds a Quick Settings toggle that switches tuned to the most aggressive 'laptop-battery-powersave' profile. Turning it off restarts tuned-ppd so GNOME's normal PPD->tuned mapping takes over again.",
+    "shell-version": ["49"],
+    "url": "https://github.com/smiie/gnome-ultra-powersave-toggle",
+    "settings-schema": null
+}
