@@ -180,6 +180,12 @@ cat /sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw
 # 20000000 = OEM default, 55000000 = boost active
 ```
 
+Live readout of both toggles (no GNOME, just sysfs + tuned):
+
+```bash
+./scripts/watch-toggles.sh
+```
+
 Check active iGPU throttle reasons (useful when GPU Boost doesn't seem
 to help):
 
@@ -214,15 +220,25 @@ done
 ## Files
 
 - `metadata.json` — extension manifest (shell-version `49`, ESM).
-- `extension.js` — both toggles live here; uses `QuickToggle` and
-  `SystemIndicator` from `resource:///org/gnome/shell/ui/quickSettings.js`.
-- `install.sh` / `uninstall.sh` — idempotent bash helpers; `install.sh`
-  also migrates away from predecessor UUIDs (`ultra-powersave@smiie.local`,
+- `extension.js` — thin entry point: the `Extension` subclass and the
+  `SystemIndicator` that hosts both toggles.
+- `toggles/common.js` — shared tuned + systemd D-Bus constants.
+- `toggles/ultraPowerSave.js` — `UltraPowerSaveToggle` (tuned profile
+  switch, `profile_changed` subscription, `tuned-ppd` restart on revert).
+- `toggles/gpuBoost.js` — `GpuBoostToggle` (starts the boost/default
+  systemd units, reads MMIO RAPL sysfs for state).
+- `install.sh` / `uninstall.sh` — idempotent bash helpers. `install.sh`
+  preflights `systemctl` and the `power-limit-*.service` units, warns if
+  `tuned.service` is missing or inactive, and migrates away from
+  predecessor UUIDs (`ultra-powersave@smiie.local`,
   `power-toggles@smiie.local`).
 - `systemd/power-limit-{boost,default}.service` — one-shot units that
   perform the actual sysfs writes for GPU Boost.
 - `polkit/50-power-quick-toggles.rules` — optional fallback rule if a
   future update makes `manage-units` prompt for auth.
+- `scripts/watch-toggles.sh` — live TTY readout of both toggle states
+  from the same sysfs + D-Bus sources the extension uses. Handy when
+  debugging why a toggle disagrees with reality.
 
 ## History
 
