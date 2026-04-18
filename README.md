@@ -1,4 +1,4 @@
-# Power Toggles
+# Power Quick Toggles
 
 A tiny GNOME Shell extension that adds two Quick Settings toggles for
 ThinkPad power tuning:
@@ -6,7 +6,7 @@ ThinkPad power tuning:
 | Toggle              | ON effect                                                                                                  | OFF effect                                                            |
 | ------------------- | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | **Ultra PowerSaving** | Forces `tuned` to `laptop-battery-powersave` — a fourth, extra-aggressive rung below GNOME's power-saver. | Restarts `tuned-ppd.service` so PPD's slider-to-tuned mapping resumes. |
-| **GPU Boost**         | Raises Intel MMIO RAPL PL1/PL2 from the 20W/43W OEM defaults to 55W/55W via `hs-power-limit-boost.service`. | Restores the OEM limits via `hs-power-limit-default.service`.         |
+| **GPU Boost**         | Raises Intel MMIO RAPL PL1/PL2 from the 20W/43W OEM defaults to 55W/55W via `power-limit-boost.service`. | Restores the OEM limits via `power-limit-default.service`.         |
 
 Target: GNOME Shell 49 on PikaOS (Intel Meteor Lake, `tuned` + `tuned-ppd`).
 
@@ -68,9 +68,9 @@ and independent of RAPL.
 
 ### Toggle behavior
 
-- **ON**: `StartUnit("hs-power-limit-boost.service", "replace")` over D-Bus
+- **ON**: `StartUnit("power-limit-boost.service", "replace")` over D-Bus
   writes 55W to both PL1 and PL2.
-- **OFF**: `StartUnit("hs-power-limit-default.service", "replace")` writes
+- **OFF**: `StartUnit("power-limit-default.service", "replace")` writes
   20W/43W.
 - State is read back from `/sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw`
   (world-readable sysfs) on enable and after every click, so the toggle
@@ -91,34 +91,38 @@ The extension only calls D-Bus; the actual sysfs writes are done by two
 tiny one-shot systemd units shipped in `systemd/`. Install once:
 
 ```bash
-sudo install -m 0644 systemd/hs-power-limit-boost.service \
-    /etc/systemd/system/hs-power-limit-boost.service
-sudo install -m 0644 systemd/hs-power-limit-default.service \
-    /etc/systemd/system/hs-power-limit-default.service
+sudo install -m 0644 systemd/power-limit-boost.service \
+    /etc/systemd/system/power-limit-boost.service
+sudo install -m 0644 systemd/power-limit-default.service \
+    /etc/systemd/system/power-limit-default.service
 sudo systemctl daemon-reload
 ```
 
 Smoke test (should succeed without a polkit prompt):
 
 ```bash
-busctl --system call org.freedesktop.systemd1 /org/freedesktop/systemd1 \
-    org.freedesktop.systemd1.Manager StartUnit ss \
-    hs-power-limit-boost.service replace
+sudo systemctl start power-limit-boost.service
 cat /sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw
 # expect: 55000000
 
-busctl --system call org.freedesktop.systemd1 /org/freedesktop/systemd1 \
-    org.freedesktop.systemd1.Manager StartUnit ss \
-    hs-power-limit-default.service replace
+sudo systemctl start power-limit-default.service
 cat /sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw
 # expect: 20000000
 ```
 
-If `busctl` prompts for auth, install the polkit fallback rule:
+Then verify the unprompted D-Bus path the extension actually uses:
 
 ```bash
-sudo install -m 0644 polkit/50-power-toggles.rules \
-    /etc/polkit-1/rules.d/50-power-toggles.rules
+busctl --system call org.freedesktop.systemd1 /org/freedesktop/systemd1 \
+    org.freedesktop.systemd1.Manager StartUnit ss \
+    power-limit-boost.service replace
+```
+
+If that call prompts for authentication, install the polkit fallback rule:
+
+```bash
+sudo install -m 0644 polkit/50-power-quick-toggles.rules \
+    /etc/polkit-1/rules.d/50-power-quick-toggles.rules
 ```
 
 ---
@@ -127,7 +131,7 @@ sudo install -m 0644 polkit/50-power-toggles.rules \
 
 ```bash
 ./install.sh
-gnome-extensions enable power-toggles@smiie.local
+gnome-extensions enable power-quick-toggles@smiie.local
 ```
 
 Then restart GNOME Shell:
@@ -135,9 +139,9 @@ Then restart GNOME Shell:
 - **Wayland**: log out and back in.
 - **X11**: press `Alt+F2`, type `r`, press `Enter`.
 
-`install.sh` also removes the predecessor extension
-(`ultra-powersave@smiie.local`) if it's still installed, so upgrading is
-one command.
+`install.sh` also removes predecessor installs (`ultra-powersave@smiie.local`
+and `power-toggles@smiie.local`) if they are still present, so upgrading
+is one command.
 
 ## Uninstall
 
@@ -145,8 +149,8 @@ one command.
 ./uninstall.sh
 ```
 
-This removes the GNOME extension only. The `hs-power-limit-*` systemd
-units are left in place — remove them manually if you want a clean slate.
+This removes the GNOME extension only. The `power-limit-*` systemd units
+are left in place — remove them manually if you want a clean slate.
 
 ## Troubleshooting
 
@@ -213,16 +217,22 @@ done
 - `extension.js` — both toggles live here; uses `QuickToggle` and
   `SystemIndicator` from `resource:///org/gnome/shell/ui/quickSettings.js`.
 - `install.sh` / `uninstall.sh` — idempotent bash helpers; `install.sh`
-  also migrates away from the predecessor `ultra-powersave@smiie.local`.
-- `systemd/hs-power-limit-{boost,default}.service` — one-shot units that
+  also migrates away from predecessor UUIDs (`ultra-powersave@smiie.local`,
+  `power-toggles@smiie.local`).
+- `systemd/power-limit-{boost,default}.service` — one-shot units that
   perform the actual sysfs writes for GPU Boost.
-- `polkit/50-power-toggles.rules` — optional fallback rule if a future
-  update makes `manage-units` prompt for auth.
+- `polkit/50-power-quick-toggles.rules` — optional fallback rule if a
+  future update makes `manage-units` prompt for auth.
 
 ## History
 
 This project started as **ultra-powersave@smiie.local** — a single toggle
-for the `laptop-battery-powersave` tuned profile. It was renamed to
-**power-toggles@smiie.local** when the GPU Boost toggle was added, so the
-name matches the broader scope. `install.sh` handles the one-time
-migration automatically.
+for the `laptop-battery-powersave` tuned profile. When the GPU Boost
+toggle was added it was briefly renamed to **power-toggles@smiie.local**,
+then finalized as **power-quick-toggles@smiie.local** for clarity about
+what it is: a collection of Quick Settings toggles for power-related
+knobs. The systemd backing units were also renamed from `hs-power-limit-*`
+(legacy prefix from an earlier Hearthstone-on-Linux debugging session) to
+`power-limit-*`. `install.sh` handles extension-side migration
+automatically; see the README section above for the one-time system-side
+cleanup when upgrading from a pre-rename install.

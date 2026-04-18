@@ -1,6 +1,6 @@
 [Unit]
 Description=Raise Intel MMIO RAPL PL1/PL2 to 55W (GPU Boost)
-Documentation=https://github.com/Smiie-2/gnome-power-toggles
+Documentation=https://github.com/Smiie-2/gnome-power-quick-toggles
 
 [Service]
 Type=oneshot

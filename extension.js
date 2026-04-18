@@ -1,4 +1,4 @@
-/* extension.js — Power Toggles
+/* extension.js — Power Quick Toggles
  *
  * Adds two Quick Settings toggles:
  *
@@ -7,8 +7,8 @@
  *      Reverts by restarting tuned-ppd.service so PPD's mapping resumes.
  *
  *   2. "GPU Boost" — raises Intel MMIO RAPL PL1/PL2 from the 20W/43W OEM
- *      defaults to 55W/55W by invoking hs-power-limit-boost.service. Turns
- *      off by invoking hs-power-limit-default.service. State is read back
+ *      defaults to 55W/55W by invoking power-limit-boost.service. Turns
+ *      off by invoking power-limit-default.service. State is read back
  *      from /sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw
  *      so the toggle always reflects the actual hardware state.
  *
@@ -39,8 +39,8 @@ const SYSTEMD_NAME = 'org.freedesktop.systemd1';
 const SYSTEMD_PATH = '/org/freedesktop/systemd1';
 const SYSTEMD_IFACE = 'org.freedesktop.systemd1.Manager';
 const PPD_UNIT = 'tuned-ppd.service';
-const BOOST_UNIT = 'hs-power-limit-boost.service';
-const DEFAULT_UNIT = 'hs-power-limit-default.service';
+const BOOST_UNIT = 'power-limit-boost.service';
+const DEFAULT_UNIT = 'power-limit-default.service';
 
 // ----- GPU Boost / MMIO RAPL -------------------------------------------------
 const MMIO_PL1 = '/sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw';
@@ -69,7 +69,7 @@ class UltraPowerSaveToggle extends QuickToggle {
                     const [newProfile] = params.deep_unpack();
                     this._setCheckedSilently(newProfile === ULTRA_PROFILE);
                 } catch (e) {
-                    logError(e, '[power-toggles/ups] profile_changed parse error');
+                    logError(e, '[power-quick-toggles/ups] profile_changed parse error');
                 }
             }
         );
@@ -96,7 +96,7 @@ class UltraPowerSaveToggle extends QuickToggle {
                     const [profile] = this._bus.call_finish(res).deep_unpack();
                     this._setCheckedSilently(profile === ULTRA_PROFILE);
                 } catch (e) {
-                    logError(e, '[power-toggles/ups] active_profile failed');
+                    logError(e, '[power-quick-toggles/ups] active_profile failed');
                 }
             }
         );
@@ -112,12 +112,12 @@ class UltraPowerSaveToggle extends QuickToggle {
                 try {
                     const [ok, msg] = this._bus.call_finish(res).deep_unpack();
                     if (!ok) {
-                        log(`[power-toggles/ups] switch_profile refused: ${msg}`);
+                        log(`[power-quick-toggles/ups] switch_profile refused: ${msg}`);
                         Main.notify('Ultra PowerSaving', `tuned refused: ${msg}`);
                         this._setCheckedSilently(false);
                     }
                 } catch (e) {
-                    logError(e, '[power-toggles/ups] switch_profile failed');
+                    logError(e, '[power-quick-toggles/ups] switch_profile failed');
                     Main.notify('Ultra PowerSaving', `D-Bus error: ${e.message}`);
                     this._setCheckedSilently(false);
                 }
@@ -135,7 +135,7 @@ class UltraPowerSaveToggle extends QuickToggle {
                 try {
                     this._bus.call_finish(res);
                 } catch (e) {
-                    logError(e, '[power-toggles/ups] RestartUnit failed');
+                    logError(e, '[power-quick-toggles/ups] RestartUnit failed');
                     Main.notify('Ultra PowerSaving',
                         `Could not restart tuned-ppd: ${e.message}`);
                     this._setCheckedSilently(true);
@@ -196,7 +196,7 @@ class GpuBoostToggle extends QuickToggle {
                     this._setCheckedSilently(value > BOOST_THRESHOLD_UW);
             } catch (e) {
                 if (!e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
-                    logError(e, '[power-toggles/boost] read PL1 failed');
+                    logError(e, '[power-quick-toggles/boost] read PL1 failed');
             }
         });
     }
@@ -221,7 +221,7 @@ class GpuBoostToggle extends QuickToggle {
                             return GLib.SOURCE_REMOVE;
                         });
                 } catch (e) {
-                    logError(e, '[power-toggles/boost] StartUnit failed');
+                    logError(e, '[power-quick-toggles/boost] StartUnit failed');
                     Main.notify('GPU Boost',
                         `Could not start ${unit}: ${e.message}`);
                     this._setCheckedSilently(!this.checked);
@@ -246,8 +246,8 @@ class GpuBoostToggle extends QuickToggle {
 // =============================================================================
 // Indicator + Extension
 // =============================================================================
-const PowerTogglesIndicator = GObject.registerClass(
-class PowerTogglesIndicator extends SystemIndicator {
+const PowerQuickTogglesIndicator = GObject.registerClass(
+class PowerQuickTogglesIndicator extends SystemIndicator {
     _init() {
         super._init();
         this._ultra = new UltraPowerSaveToggle();
@@ -263,9 +263,9 @@ class PowerTogglesIndicator extends SystemIndicator {
     }
 });
 
-export default class PowerTogglesExtension extends Extension {
+export default class PowerQuickTogglesExtension extends Extension {
     enable() {
-        this._indicator = new PowerTogglesIndicator();
+        this._indicator = new PowerQuickTogglesIndicator();
         Main.panel.statusArea.quickSettings.addExternalIndicator(this._indicator);
     }
 
