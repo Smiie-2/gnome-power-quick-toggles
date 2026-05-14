@@ -4,4 +4,6 @@ Documentation=https://github.com/Smiie-2/gnome-power-quick-toggles
 
 [Service]
 Type=oneshot
+ExecStartPre=-/bin/systemctl stop power-limit-boost.service
 ExecStart=/bin/sh -c 'echo 20000000 > /sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw && echo 43000000 > /sys/class/powercap/intel-rapl-mmio:0/constraint_1_power_limit_uw'
+

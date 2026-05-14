@@ -1,7 +1,8 @@
 [Unit]
-Description=Raise Intel MMIO RAPL PL1/PL2 to 55W (GPU Boost)
+Description=Hold Intel MMIO RAPL PL1/PL2 at boost (55W/55W)
 Documentation=https://github.com/Smiie-2/gnome-power-quick-toggles
 
 [Service]
-Type=oneshot
-ExecStart=/bin/sh -c 'echo 55000000 > /sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw && echo 55000000 > /sys/class/powercap/intel-rapl-mmio:0/constraint_1_power_limit_uw'
+Type=simple
+ExecStart=/bin/sh -c 'while true; do echo 55000000 > /sys/class/powercap/intel-rapl-mmio:0/constraint_0_power_limit_uw; echo 55000000 > /sys/class/powercap/intel-rapl-mmio:0/constraint_1_power_limit_uw; sleep 5; done'
+
